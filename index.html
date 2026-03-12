@@ -1086,7 +1086,35 @@ function logoSVG(size){
 }
 
 // ── CATÁLOGO ──
-function getCat(){try{const s=localStorage.getItem(LS_CAT);return s?JSON.parse(s):JSON.parse(JSON.stringify(BASE))}catch(e){return JSON.parse(JSON.stringify(BASE))}}
+function getCat(){
+  try{
+    const s = localStorage.getItem(LS_CAT);
+    const base = JSON.parse(JSON.stringify(BASE));
+    if(!s) return base;
+
+    const parsed = JSON.parse(s);
+
+    // Estructura correcta actual
+    if (parsed && Array.isArray(parsed.dulces) && Array.isArray(parsed.condimentos)) {
+      return parsed;
+    }
+
+    // Compatibilidad con estructura vieja: premium / estandar / condimentos
+    if (parsed && (Array.isArray(parsed.premium) || Array.isArray(parsed.estandar) || Array.isArray(parsed.condimentos))) {
+      return {
+        dulces: [
+          ...(Array.isArray(parsed.premium) ? parsed.premium : []),
+          ...(Array.isArray(parsed.estandar) ? parsed.estandar : [])
+        ],
+        condimentos: Array.isArray(parsed.condimentos) ? parsed.condimentos : []
+      };
+    }
+
+    return base;
+  }catch(e){
+    return JSON.parse(JSON.stringify(BASE));
+  }
+}
 function saveCat(c){localStorage.setItem(LS_CAT,JSON.stringify(c));setSyncStatus('💾 Catálogo local',true);}
 
 // ── GASTOS OPERATIVOS ──
