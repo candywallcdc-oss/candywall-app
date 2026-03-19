@@ -1649,7 +1649,6 @@ function recalc(){
 // ── GUARDAR / CARGAR ──
 function getDatos(){
   const p = getP();
-  const snapshot = construirSnapshotCotizacion();
 
   return {
     nombre: $i('f-nombre').value.trim(),
@@ -1670,16 +1669,23 @@ function getDatos(){
     ajustes: JSON.parse(JSON.stringify(_ajustes)),
     gastos: JSON.parse(JSON.stringify(getGastos())),
 
-    guardadoEn: new Date().toISOString(),
-
-    // NUEVO
-    snapshot,
-    calculo: snapshot.calculo
+    guardadoEn: new Date().toISOString()
   };
 }
 function construirSnapshotCotizacion(){
   const p = getP();
-  const datos = getDatos();
+  const datosBase = {
+    nombre: $i('f-nombre').value.trim(),
+    celular: $i('f-celular').value.trim(),
+    fecha: $i('f-fecha').value,
+    horario: $i('f-horario').value.trim(),
+    folio: $i('f-folio').value.trim() || 'CW-001',
+    direccion: $i('f-direccion').value.trim(),
+    vigencia: parseInt($i('f-vigencia').value) || 15
+  };
+
+  const ajustes = JSON.parse(JSON.stringify(_ajustes || []));
+  const gastos = JSON.parse(JSON.stringify(getGastos() || []));
   const aj = totalAjustes();
   const calc = calcular(p.personas, p.margen, p.imprev, p.dulces, aj, p.porciones);
 
@@ -1694,19 +1700,11 @@ function construirSnapshotCotizacion(){
       factorExcedenteGlobal: getFactorExcedente()
     },
 
-    cliente: {
-      nombre: datos.nombre,
-      celular: datos.celular,
-      fecha: datos.fecha,
-      horario: datos.horario,
-      folio: datos.folio,
-      direccion: datos.direccion,
-      vigencia: datos.vigencia
-    },
+    cliente: datosBase,
 
-    dulces: JSON.parse(JSON.stringify(datos.dulces || [])),
-    ajustes: JSON.parse(JSON.stringify(_ajustes || [])),
-    gastos: JSON.parse(JSON.stringify(getGastos() || [])),
+    dulces: JSON.parse(JSON.stringify(p.dulces || [])),
+    ajustes,
+    gastos,
 
     calculo: JSON.parse(JSON.stringify(calc))
   };
@@ -2084,13 +2082,17 @@ function guardarCot(){
     return;
   }
 
-  // asegúrate de reconstruir snapshot al guardar
   const snapshot = construirSnapshotCotizacion();
+
   d.snapshot = snapshot;
   d.calculo = snapshot.calculo;
   d.gastos = JSON.parse(JSON.stringify(snapshot.gastos || []));
   d.ajustes = JSON.parse(JSON.stringify(snapshot.ajustes || []));
-  d.factorExcedenteGlobal = Number(snapshot.parametros.factorExcedenteGlobal || d.factorExcedenteGlobal || 0.5);
+  d.factorExcedenteGlobal = Number(
+    snapshot.parametros?.factorExcedenteGlobal ||
+    d.factorExcedenteGlobal ||
+    0.5
+  );
   d.guardadoEn = snapshot.guardadoEn;
 
   const db = getDB();
@@ -2122,10 +2124,13 @@ function guardarCot(){
     })
     .then(() => {
       try { renderHistorial(); } catch(e){}
+      toast('✅ Cotización ' + d.folio + ' guardada');
     })
-    .catch(() => setSyncStatus('⚠️ Solo local', false));
-
-  toast('✅ Cotización ' + d.folio + ' guardada');
+    .catch(err => {
+      console.error(err);
+      setSyncStatus('⚠️ Solo local', false);
+      toast('Cotización guardada localmente; falló nube','warn');
+    });
 }
 function cargarCot(folio){
   const c = normalizarCotizacion(getDB().find(x => x.folio === folio));
