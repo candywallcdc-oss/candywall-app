@@ -1052,27 +1052,45 @@ async function cloudSaveKey(sheet,obj){
 }
 function normalizarCotizacion(c){
   if(!c) return null;
-  let x=c;
-  if(c.data && typeof c.data==='object') x={...c.data, folio:(c.data.folio||c.folio||'')};
-  const folio=String(x.folio||'').trim();
+
+  let x = c;
+  if(c.data && typeof c.data === 'object'){
+    x = {...c.data, folio:(c.data.folio || c.folio || '')};
+  }
+
+  const folio = String(x.folio || '').trim();
   if(!folio) return null;
+
   return {
-    nombre:String(x.nombre||''),
-    celular:String(x.celular||''),
-    fecha:String(x.fecha||''),
-    horario:String(x.horario||''),
+    nombre: String(x.nombre || ''),
+    celular: String(x.celular || ''),
+    fecha: String(x.fecha || ''),
+    horario: String(x.horario || ''),
     folio,
-    direccion:String(x.direccion||''),
-    vigencia:Number(x.vigencia||15),
-    dulces:Array.isArray(x.dulces)?x.dulces:[],
-    personas:Number(x.personas||0),
-    margen:Number(x.margen||40),
-    imprev:Number(x.imprev||5),
-    porciones:Number(x.porciones||3),
-    ajustes:Array.isArray(x.ajustes)?x.ajustes:[],
-    gastos:Array.isArray(x.gastos)?x.gastos:undefined,
-    guardadoEn:x.guardadoEn||new Date().toISOString(),
-    estado:x.estado||'pendiente'
+    direccion: String(x.direccion || ''),
+    vigencia: Number(x.vigencia || 15),
+
+    dulces: Array.isArray(x.dulces) ? x.dulces : [],
+    personas: Number(x.personas || 0),
+    margen: Number(x.margen || 40),
+    imprev: Number(x.imprev || 5),
+    porciones: Number(x.porciones || 3),
+    factorExcedenteGlobal: Number(
+      x.factorExcedenteGlobal ??
+      x.parametros?.factorExcedenteGlobal ??
+      x.parametros?.excedente_global ??
+      0.5
+    ),
+
+    ajustes: Array.isArray(x.ajustes) ? x.ajustes : [],
+    gastos: Array.isArray(x.gastos) ? x.gastos : undefined,
+
+    guardadoEn: x.guardadoEn || new Date().toISOString(),
+    estado: x.estado || 'pendiente',
+
+    // NUEVO: snapshot congelado
+    snapshot: x.snapshot && typeof x.snapshot === 'object' ? x.snapshot : null,
+    calculo: x.calculo && typeof x.calculo === 'object' ? x.calculo : null
   };
 }
 async function syncHistorialFromCloud(){
@@ -1630,16 +1648,70 @@ function recalc(){
 
 // ── GUARDAR / CARGAR ──
 function getDatos(){
-  const p=getP();
-  return{nombre:$i('f-nombre').value.trim(),celular:$i('f-celular').value.trim(),fecha:$i('f-fecha').value,
-    horario:$i('f-horario').value.trim(),folio:$i('f-folio').value.trim()||'CW-001',direccion:$i('f-direccion').value.trim(),
-    vigencia:parseInt($i('f-vigencia').value)||15,
-    dulces:p.dulces,personas:p.personas,margen:Math.round(p.margen*100),imprev:Math.round(p.imprev*100),porciones:p.porciones,factorExcedenteGlobal:p.factorExcedenteGlobal,
-    ajustes:JSON.parse(JSON.stringify(_ajustes)),
-    gastos:JSON.parse(JSON.stringify(getGastos())),
-    guardadoEn:new Date().toISOString()};
+  const p = getP();
+  const snapshot = construirSnapshotCotizacion();
+
+  return {
+    nombre: $i('f-nombre').value.trim(),
+    celular: $i('f-celular').value.trim(),
+    fecha: $i('f-fecha').value,
+    horario: $i('f-horario').value.trim(),
+    folio: $i('f-folio').value.trim() || 'CW-001',
+    direccion: $i('f-direccion').value.trim(),
+    vigencia: parseInt($i('f-vigencia').value) || 15,
+
+    dulces: p.dulces,
+    personas: p.personas,
+    margen: Math.round(p.margen * 100),
+    imprev: Math.round(p.imprev * 100),
+    porciones: p.porciones,
+    factorExcedenteGlobal: p.factorExcedenteGlobal,
+
+    ajustes: JSON.parse(JSON.stringify(_ajustes)),
+    gastos: JSON.parse(JSON.stringify(getGastos())),
+
+    guardadoEn: new Date().toISOString(),
+
+    // NUEVO
+    snapshot,
+    calculo: snapshot.calculo
+  };
 }
-function nuevaCotizacion(){
+function construirSnapshotCotizacion(){
+  const p = getP();
+  const datos = getDatos();
+  const aj = totalAjustes();
+  const calc = calcular(p.personas, p.margen, p.imprev, p.dulces, aj, p.porciones);
+
+  return {
+    guardadoEn: new Date().toISOString(),
+
+    parametros: {
+      personas: p.personas,
+      margen: Math.round(p.margen * 100),
+      imprev: Math.round(p.imprev * 100),
+      porciones: p.porciones,
+      factorExcedenteGlobal: getFactorExcedente()
+    },
+
+    cliente: {
+      nombre: datos.nombre,
+      celular: datos.celular,
+      fecha: datos.fecha,
+      horario: datos.horario,
+      folio: datos.folio,
+      direccion: datos.direccion,
+      vigencia: datos.vigencia
+    },
+
+    dulces: JSON.parse(JSON.stringify(datos.dulces || [])),
+    ajustes: JSON.parse(JSON.stringify(_ajustes || [])),
+    gastos: JSON.parse(JSON.stringify(getGastos() || [])),
+
+    calculo: JSON.parse(JSON.stringify(calc))
+  };
+}
+  function nuevaCotizacion(){
   if(!confirm('¿Limpiar todos los campos para una nueva cotización?'))return;
   $i('f-nombre').value='';$i('f-celular').value='';$i('f-fecha').value='';
   $i('f-horario').value='';$i('f-direccion').value='';$i('f-vigencia').value=15;
@@ -2006,43 +2078,122 @@ function generarFolio(){
 }
 
 function guardarCot(){
-  const d=normalizarCotizacion(getDatos());if(!d||!d.nombre){toast('Escribe el nombre del cliente','error');return;}
-  const db=getDB(),idx=db.findIndex(x=>x.folio===d.folio);
-  if(idx>=0){
-    d.estado=d.estado||db[idx].estado||'pendiente';
-    if(!confirm('Ya existe '+d.folio+'. ¿Sobreescribir?'))return;
-    db[idx]=d;
+  const d = normalizarCotizacion(getDatos());
+  if(!d || !d.nombre){
+    toast('Escribe el nombre del cliente','error');
+    return;
+  }
+
+  // asegúrate de reconstruir snapshot al guardar
+  const snapshot = construirSnapshotCotizacion();
+  d.snapshot = snapshot;
+  d.calculo = snapshot.calculo;
+  d.gastos = JSON.parse(JSON.stringify(snapshot.gastos || []));
+  d.ajustes = JSON.parse(JSON.stringify(snapshot.ajustes || []));
+  d.factorExcedenteGlobal = Number(snapshot.parametros.factorExcedenteGlobal || d.factorExcedenteGlobal || 0.5);
+  d.guardadoEn = snapshot.guardadoEn;
+
+  const db = getDB();
+  const idx = db.findIndex(x => x.folio === d.folio);
+
+  if(idx >= 0){
+    d.estado = d.estado || db[idx].estado || 'pendiente';
+    if(!confirm('Ya existe ' + d.folio + '. ¿Sobreescribir?')) return;
+    db[idx] = d;
   } else {
-    d.estado=d.estado||'pendiente';
+    d.estado = d.estado || 'pendiente';
     db.unshift(d);
   }
+
   saveDB(db);
   renderHistorial();
+
   setSyncStatus('💾 Guardando…');
-  cloudPost({action:'save',sheet:'cotizaciones',id:d.folio,json:JSON.stringify(d)})
-    .then(()=>{ setSyncStatus('✅ Guardado en nube ☁️',true); return syncHistorialFromCloud(); })
-    .then(()=>{ try{renderHistorial();}catch(e){} })
-    .catch(()=>setSyncStatus('⚠️ Solo local',false));
-  toast('✅ Cotización '+d.folio+' guardada');
+
+  cloudPost({
+    action:'save',
+    sheet:'cotizaciones',
+    id:d.folio,
+    json:JSON.stringify(d)
+  })
+    .then(() => {
+      setSyncStatus('✅ Guardado en nube ☁️', true);
+      return syncHistorialFromCloud();
+    })
+    .then(() => {
+      try { renderHistorial(); } catch(e){}
+    })
+    .catch(() => setSyncStatus('⚠️ Solo local', false));
+
+  toast('✅ Cotización ' + d.folio + ' guardada');
 }
 function cargarCot(folio){
-  const c=normalizarCotizacion(getDB().find(x=>x.folio===folio));if(!c)return;
-  $i('f-nombre').value=c.nombre;$i('f-celular').value=c.celular;$i('f-fecha').value=c.fecha;
-  $i('f-horario').value=c.horario;$i('f-folio').value=c.folio;$i('f-direccion').value=c.direccion;
-  $i('f-vigencia').value=c.vigencia||15;
-  $i('sl-pers').value=c.personas;$i('sl-mg').value=c.margen;$i('sl-imp').value=c.imprev;$i('f-porciones').value=c.porciones||3;
-  if(c.factorExcedenteGlobal!=null){ const cfg=getCfg(); cfg.factorExcedenteGlobal=Number(c.factorExcedenteGlobal)||cfg.factorExcedenteGlobal; saveCfg(cfg,true); }
-  _ajustes=c.ajustes?JSON.parse(JSON.stringify(c.ajustes)):[];
+  const c = normalizarCotizacion(getDB().find(x => x.folio === folio));
+  if(!c) return;
+
+  // Cliente
+  $i('f-nombre').value = c.nombre;
+  $i('f-celular').value = c.celular;
+  $i('f-fecha').value = c.fecha;
+  $i('f-horario').value = c.horario;
+  $i('f-folio').value = c.folio;
+  $i('f-direccion').value = c.direccion;
+  $i('f-vigencia').value = c.vigencia || 15;
+
+  // Si trae snapshot, manda primero esos parámetros
+  const sp = c.snapshot?.parametros || null;
+
+  $i('sl-pers').value = sp?.personas ?? c.personas;
+  $i('sl-mg').value = sp?.margen ?? c.margen;
+  $i('sl-imp').value = sp?.imprev ?? c.imprev;
+  $i('f-porciones').value = sp?.porciones ?? c.porciones ?? 3;
+
+  // Congela el factor de excedente de ESA cotización
+  const fx = Number(
+    sp?.factorExcedenteGlobal ??
+    c.factorExcedenteGlobal ??
+    getFactorExcedente()
+  );
+
+  const cfg = getCfg();
+  cfg.factorExcedenteGlobal = fx;
+  saveCfg(cfg, true);
+
+  // Ajustes congelados
+  _ajustes = Array.isArray(c.snapshot?.ajustes)
+    ? JSON.parse(JSON.stringify(c.snapshot.ajustes))
+    : (c.ajustes ? JSON.parse(JSON.stringify(c.ajustes)) : []);
   renderAjustes();
-  if(c.gastos){CLOUD_GASTOS=JSON.parse(JSON.stringify(c.gastos)); localStorage.setItem(LS_GAST,JSON.stringify(c.gastos));}
-  const cat=getCat();
-  c.dulces.forEach((val,i)=>{
-    const s=$i(`d-${i}`);if(!s)return;
-    if(!val){s.value='';return;}
-    const prod=findDulceByVal(val);
-    s.value=prod?`${prod.id}||${prod.nombre}||${prod.presentacion||''}`:val;
+
+  // Gastos congelados
+  const gastosCongelados = Array.isArray(c.snapshot?.gastos)
+    ? c.snapshot.gastos
+    : c.gastos;
+
+  if(gastosCongelados){
+    CLOUD_GASTOS = JSON.parse(JSON.stringify(gastosCongelados));
+    localStorage.setItem(LS_GAST, JSON.stringify(gastosCongelados));
+  }
+
+  // Dulces
+  const dulcesCongelados = Array.isArray(c.snapshot?.dulces) ? c.snapshot.dulces : c.dulces;
+
+  dulcesCongelados.forEach((val, i) => {
+    const s = $i(`d-${i}`);
+    if(!s) return;
+
+    if(!val){
+      s.value = '';
+      return;
+    }
+
+    const prod = findDulceByVal(val);
+    s.value = prod ? `${prod.id}||${prod.nombre}||${prod.presentacion || ''}` : val;
   });
-  recalc();setView('nueva');toast('📂 Cotización '+folio+' cargada');
+
+  recalc();
+  setView('nueva');
+  toast('📂 Cotización ' + folio + ' cargada');
 }
 function eliminarCot(folio){
   if(!confirm('¿Eliminar '+folio+'?'))return;
@@ -2068,46 +2219,100 @@ function ciclarEstado(folio,e){
 
 // ── HISTORIAL RENDER ──
 function renderHistorial(){
-  const q=($i('buscador').value||'').toLowerCase();
-  const base=getDB();
-  const db=base.filter(x=>{
-    const nombre=String(x.nombre||'').toLowerCase();
-    const folio=String(x.folio||'').toLowerCase();
-    const fecha=String(x.fecha||'');
-    return nombre.includes(q)||folio.includes(q)||fecha.includes(q);
+  const q = ($i('buscador').value || '').toLowerCase();
+  const base = getDB();
+
+  const db = base.filter(x => {
+    const cot = normalizarCotizacion(x);
+    if(!cot) return false;
+
+    const nombre = String(cot.nombre || '').toLowerCase();
+    const folio = String(cot.folio || '').toLowerCase();
+    const fecha = String(cot.fecha || '');
+
+    return nombre.includes(q) || folio.includes(q) || fecha.includes(q);
   });
-  $i('hist-count').textContent=base.length+' cotización(es) guardada(s)';
-  const cont=$i('hist-container');
-  if(!db.length){cont.innerHTML=`<div class="hist-empty"><span class="icon">📋</span>${q?'Sin resultados':'Aún no hay cotizaciones guardadas.'}</div>`;return;}
-  cont.innerHTML='<div class="hist-list">'+db.map(raw=>{
-    const cot=normalizarCotizacion(raw); if(!cot) return '';
-    const ajTotal=(Array.isArray(cot.ajustes)?cot.ajustes:[]).reduce((a,x)=>a+(x.tipo==='desc'?-(x.monto||0):(x.monto||0)),0);
-    const cc=calcular(cot.personas,cot.margen/100,cot.imprev/100,Array.isArray(cot.dulces)?cot.dulces:[],ajTotal,cot.porciones||3);
-    const saved=cot.guardadoEn?new Date(cot.guardadoEn).toLocaleDateString('es-MX'):'—';
-    const est=cot.estado||'pendiente';
-    const {label,cls}=ESTADOS[est]||ESTADOS.pendiente;
-    return`<div class="hist-item" onclick="cargarCot('${cot.folio}')">
-      <div class="hist-info">
-        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-          <span class="hist-folio">${cot.folio}</span>
-          <span class="estado-badge ${cls}" onclick="ciclarEstado('${cot.folio}',event)" title="Clic para cambiar estado">${label}</span>
+
+  $i('hist-count').textContent = base.length + ' cotización(es) guardada(s)';
+
+  const cont = $i('hist-container');
+  if(!db.length){
+    cont.innerHTML = `<div class="hist-empty"><span class="icon">📋</span>${q ? 'Sin resultados' : 'Aún no hay cotizaciones guardadas.'}</div>`;
+    return;
+  }
+
+  cont.innerHTML = '<div class="hist-list">' + db.map(raw => {
+    const cot = normalizarCotizacion(raw);
+    if(!cot) return '';
+
+    const cc =
+      cot.calculo ||
+      cot.snapshot?.calculo ||
+      (() => {
+        const ajTotal = (Array.isArray(cot.ajustes) ? cot.ajustes : []).reduce(
+          (a, x) => a + (x.tipo === 'desc' ? -(x.monto || 0) : (x.monto || 0)), 0
+        );
+        return calcular(
+          cot.personas,
+          cot.margen / 100,
+          cot.imprev / 100,
+          Array.isArray(cot.dulces) ? cot.dulces : [],
+          ajTotal,
+          cot.porciones || 3
+        );
+      })();
+
+    const saved = cot.guardadoEn ? new Date(cot.guardadoEn).toLocaleDateString('es-MX') : '—';
+    const est = cot.estado || 'pendiente';
+    const {label, cls} = ESTADOS[est] || ESTADOS.pendiente;
+
+    return `
+      <div class="hist-item">
+        <div class="hist-info" onclick="cargarCot('${cot.folio}')">
+          <div class="hist-folio">${cot.folio}</div>
+          <div class="hist-nombre">${cot.nombre || 'Sin nombre'}</div>
+          <div class="hist-meta">
+            ${cot.fecha || 'Sin fecha'} · ${cot.personas || 0} pers · Guardada ${saved}
+          </div>
         </div>
-        <div class="hist-nombre">${cot.nombre||'Sin nombre'}</div>
-        <div class="hist-meta">${fmtF(cot.fecha)} · ${cot.personas||0} personas · Guardada: ${saved}</div>
+        <div class="hist-precio" onclick="verPDF('${cot.folio}')">${fmt(cc.ps || cc.pvAdj || cc.pv || 0)}</div>
+        <div class="hist-acciones">
+          <span class="estado-badge ${cls}" onclick="toggleEstado('${cot.folio}')">${label}</span>
+          <button class="btn btn-sm btn-azul" onclick="cargarCot('${cot.folio}')">Abrir</button>
+          <button class="btn btn-sm btn-oro" onclick="verPDF('${cot.folio}')">PDF</button>
+          <button class="btn btn-sm btn-danger" onclick="eliminarCot('${cot.folio}')">Borrar</button>
+        </div>
       </div>
-      <div class="hist-precio">${fmt(cc.ps)}</div>
-      <div class="hist-acciones" onclick="event.stopPropagation()">
-        <button class="btn btn-sm btn-verde" onclick="verPDF('${cot.folio}')">👁 PDF</button>
-        <button class="btn btn-sm btn-oro" onclick="generarContratoFolio('${cot.folio}')">📄 Contrato</button>
-        <button class="btn btn-sm btn-danger" onclick="eliminarCot('${cot.folio}')">🗑</button>
-      </div></div>`;
-  }).join('')+'</div>';
+    `;
+  }).join('') + '</div>';
 }
 function verPDF(folio){
-  const cot=normalizarCotizacion(getDB().find(x=>x.folio===folio));if(!cot)return;
-  const ajTotal=cot.ajustes?(cot.ajustes.reduce((a,x)=>a+(x.tipo==='desc'?-(x.monto||0):(x.monto||0)),0)):0;
-  const cc=calcular(cot.personas,cot.margen/100,cot.imprev/100,cot.dulces,ajTotal,cot.porciones||3);
-  $i('nota-print').innerHTML=buildNota(cot,cc);setView('preview');
+  const cot = normalizarCotizacion(getDB().find(x => x.folio === folio));
+  if(!cot) return;
+
+  let cc = null;
+
+  if(cot.calculo && typeof cot.calculo === 'object'){
+    cc = cot.calculo;
+  } else if(cot.snapshot?.calculo && typeof cot.snapshot.calculo === 'object'){
+    cc = cot.snapshot.calculo;
+  } else {
+    const ajTotal = Array.isArray(cot.ajustes)
+      ? cot.ajustes.reduce((a, x) => a + (x.tipo === 'desc' ? -(x.monto || 0) : (x.monto || 0)), 0)
+      : 0;
+
+    cc = calcular(
+      cot.personas,
+      cot.margen / 100,
+      cot.imprev / 100,
+      Array.isArray(cot.dulces) ? cot.dulces : [],
+      ajTotal,
+      cot.porciones || 3
+    );
+  }
+
+  $i('nota-print').innerHTML = buildNota(cot, cc);
+  setView('preview');
 }
 
 // ── CATÁLOGO RENDER ──
