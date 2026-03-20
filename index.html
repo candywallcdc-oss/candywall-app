@@ -1783,9 +1783,12 @@ function renderExcedente(){
     </table>`;
 }
 function regenerarPreview(){
-  const d=getDatos(),p=getP();
-  const aj=totalAjustes();
-  $i('nota-print').innerHTML=buildNota(d,calcular(p.personas,p.margen,p.imprev,p.dulces,aj,p.porciones));
+  const d = getDatos(), p = getP();
+  const aj = totalAjustes();
+  const calc = calcular(p.personas, p.margen, p.imprev, p.dulces, aj, p.porciones);
+
+  d.calculo = calc;
+  $i('nota-print').innerHTML = buildNota(d, calc);
   toast('🔄 PDF actualizado');
 }
 function imprimirContrato(){
@@ -2303,13 +2306,13 @@ function verPDF(folio){
     cc = cot.snapshot.calculo;
   } else {
     const ajTotal = Array.isArray(cot.ajustes)
-      ? cot.ajustes.reduce((a, x) => a + (x.tipo === 'desc' ? -(x.monto || 0) : (x.monto || 0)), 0)
+      ? cot.ajustes.reduce((a,x)=>a+(x.tipo==='desc'?-(x.monto||0):(x.monto||0)),0)
       : 0;
 
     cc = calcular(
       cot.personas,
-      cot.margen / 100,
-      cot.imprev / 100,
+      cot.margen/100,
+      cot.imprev/100,
       Array.isArray(cot.dulces) ? cot.dulces : [],
       ajTotal,
       cot.porciones || 3
@@ -2319,7 +2322,6 @@ function verPDF(folio){
   $i('nota-print').innerHTML = buildNota(cot, cc);
   setView('preview');
 }
-
 // ── CATÁLOGO RENDER ──
 function renderCatalogo(){
   const q=($i('cat-filter').value||'').toLowerCase(),cat=getCat();
@@ -3004,34 +3006,56 @@ function imprimirLista(){
 
 // ── NOTA COTIZACIÓN ──
 function buildNota(d,c){
-  const cat=getCat();
-  const cfg=getCfg();
-  const contactLine=getCfgContactLine();
-  const {nombre,celular,fecha,horario,folio,direccion,dulces,personas}=d;
-  const aj=d.ajustes||[];
-  const ajLines=aj.filter(a=>a.monto>0||a.descripcion).map(a=>{
-    const neg=a.tipo==='desc';
-    return`<div class="nprow ${neg?'anticipo':'liquid'}" style="background:${neg?'#FFEBEE':'var(--verd-cl)'}">
+  const cfgSnap = d.snapshot?.config || null;
+  const cfg = cfgSnap || getCfg();
+
+  const nombre = d.nombre || d.snapshot?.cliente?.nombre || '';
+  const celular = d.celular || d.snapshot?.cliente?.celular || '';
+  const fecha = d.fecha || d.snapshot?.cliente?.fecha || '';
+  const horario = d.horario || d.snapshot?.cliente?.horario || '';
+  const folio = d.folio || d.snapshot?.cliente?.folio || '';
+  const direccion = d.direccion || d.snapshot?.cliente?.direccion || '';
+  const personas = d.personas || d.snapshot?.parametros?.personas || 0;
+  const dulces = Array.isArray(d.dulces) ? d.dulces : (d.snapshot?.dulces || []);
+  const aj = Array.isArray(d.ajustes) ? d.ajustes : (d.snapshot?.ajustes || []);
+
+  const contactLine = getCfgContactLine();
+  const ajLines = aj.filter(a=>a.monto>0 || a.descripcion).map(a=>{
+    const neg = a.tipo === 'desc';
+    return `<div class="nprow ${neg?'anticipo':'liquid'}" style="background:${neg?'#FFEBEE':'var(--verd-cl)'}">
       <div class="nplbl">${neg?'🔻 Descuento:':'🔺 Cargo extra:'} ${a.descripcion||'Ajuste'}</div>
       <div class="npval" style="font-size:14px;color:${neg?'#C62828':'var(--verde)'}">${neg?'−':'+'} ${fmt(a.monto||0)}</div>
     </div>`;
   }).join('');
-  const anticipoPct=cfg.anticipoPct||50;
-  const vigenciaDias=d.vigencia||15;
-  const fechaVigencia=new Date();
-  fechaVigencia.setDate(fechaVigencia.getDate()+vigenciaDias);
-  const vigenciaStr=fechaVigencia.toLocaleDateString('es-MX',{year:'numeric',month:'long',day:'numeric'});
-  const tcLines=(cfg.terminos||[]).map((t,i)=>`<div class="ntc-item">${i+1}. ${t}</div>`).join('');
-  return`
+
+  const anticipoPct = cfg.anticipoPct || 50;
+  const vigenciaDias = d.vigencia || d.snapshot?.cliente?.vigencia || 15;
+
+  const baseDate = d.guardadoEn
+    ? new Date(d.guardadoEn)
+    : (d.snapshot?.guardadoEn ? new Date(d.snapshot.guardadoEn) : new Date());
+
+  const fechaVigencia = new Date(baseDate);
+  fechaVigencia.setDate(fechaVigencia.getDate() + vigenciaDias);
+
+  const vigenciaStr = fechaVigencia.toLocaleDateString('es-MX',{
+    year:'numeric',month:'long',day:'numeric'
+  });
+
+  const tcLines = (cfg.terminos || []).map((t,i)=>`<div class="ntc-item">${i+1}. ${t}</div>`).join('');
+
+  return `
   <div class="nhdr">${logoSVG(52)}<div class="nhdr-txt">
     <div class="nhdr-logo-txt">${cfg.negocio||'CANDY WALL'}</div>
     <div class="nhdr-sub">${contactLine}</div>
   </div></div>
+
   <div class="nsec r">CLIENTE</div>
   <div class="ngrid">
     <div class="ncell"><div class="nlbl">Nombre</div><div class="nval ${!nombre?'empty':''}">${nombre||'—'}</div></div>
     <div class="ncell"><div class="nlbl">Celular</div><div class="nval ${!celular?'empty':''}">${celular||'—'}</div></div>
   </div>
+
   <div class="nsec r">EVENTO</div>
   <div class="ngrid">
     <div class="ncell"><div class="nlbl">Fecha</div><div class="nval ${!fecha?'empty':''}">${fmtF(fecha)}</div></div>
@@ -3040,38 +3064,47 @@ function buildNota(d,c){
     <div class="ncell"><div class="nlbl">No. de personas</div><div class="nval">${personas}</div></div>
     <div class="ncell"><div class="nlbl">Folio</div><div class="nval">${folio}</div></div>
   </div>
+
   <div class="nsec r">🍬 BOTANAS A ELEGIR — 12 DULCES DEL WALL</div>
   ${(()=>{
     const pairs=[];
     for(let i=0;i<dulces.length;i+=2){
-      const a=dulces[i],b=dulces[i+1];
-      const na=parseDulce(a).nombre,nb=b!=null?parseDulce(b).nombre:'';
+      const a=dulces[i], b=dulces[i+1];
+      const na=parseDulce(a).nombre, nb=b!=null?parseDulce(b).nombre:'';
       pairs.push(`<div style="display:flex;border-bottom:1px solid #FCE4EC">
-        <div class="ndulce" style="flex:1;border-bottom:none"><div class="ndnum">${i+1}</div><div class="ndnom ${!na?'empty':''}">${na||'— (no seleccionado)'}</div></div>
-        ${b!=null?`<div class="ndulce" style="flex:1;border-bottom:none;border-left:1px solid #FCE4EC"><div class="ndnum">${i+2}</div><div class="ndnom ${!nb?'empty':''}">${nb||'— (no seleccionado)'}</div></div>`:''}
+        <div class="ndulce" style="flex:1;border-bottom:none"><div class="ndnum">${i+1}</div><div class="ndnom ${!na?'empty':''}">${na||'—'}</div></div>
+        <div class="ndulce" style="flex:1;border-bottom:none"><div class="ndnum">${i+2}</div><div class="ndnom ${!nb?'empty':''}">${nb||'—'}</div></div>
       </div>`);
     }
     return pairs.join('');
   })()}
+
   <div class="ncond-blk">
-    <div style="font-size:9px;font-weight:800;color:#7B1FA2;letter-spacing:1.5px;text-transform:uppercase">🌶 Condimentos incluidos</div>
-    <div class="ncond-chips">${cat.condimentos.filter(co=>co.disponible!==false).map(co=>`<div class="ncond-chip">${co.nombre}</div>`).join('')}</div>
+    <div class="nlbl" style="color:var(--mora)">Condimentos incluidos</div>
+    <div class="ncond-chips">
+      ${(cfg.condimentosLabel || ['Chamoy','Miguelito','Tajín','Salsa Botanera','Valentina'])
+        .map(x=>`<span class="ncond-chip">${x}</span>`).join('')}
+    </div>
   </div>
-  <div class="nincluye">✔ Incluye: Vasitos · Servilletas · Pinzas · Palillos · Sticker personalizado</div>
+
+  <div class="nincluye">Incluye montaje, exhibición tipo wall, 12 variedades a elegir y condimentos incluidos.</div>
+
   <div class="nprecios">
+    <div class="nprow total"><div class="nplbl">Total</div><div class="npval">${fmt(c.ps || c.pvAdj || c.pv || 0)}</div></div>
+    <div class="nprow anticipo"><div class="nplbl">Anticipo para apartar (${anticipoPct}%)</div><div class="npval">${fmt(Math.ceil((c.ps || c.pvAdj || c.pv || 0) * anticipoPct / 100))}</div></div>
+    <div class="nprow liquid"><div class="nplbl">Liquidación restante</div><div class="npval">${fmt((c.ps || c.pvAdj || c.pv || 0) - Math.ceil((c.ps || c.pvAdj || c.pv || 0) * anticipoPct / 100))}</div></div>
     ${ajLines}
-    <div class="nprow total" style="margin-top:4px"><div class="nplbl">✅ PRECIO FINAL</div><div class="npval">${fmt(c.ps)}</div></div>
-    <div class="nprow anticipo"><div class="nplbl">📋 Anticipo (${anticipoPct}%)</div><div class="npval">${fmt(c.ps*(anticipoPct/100))}</div></div>
-    <div class="nprow liquid"><div class="nplbl">✅ Liquidación</div><div class="npval">Al momento del servicio</div></div>
-    <div class="nprow" style="background:#F3E5F5"><div class="nplbl" style="color:#7B1FA2">⏳ Vigencia de esta cotización</div><div class="npval" style="font-size:12px;color:#7B1FA2">Hasta el ${vigenciaStr}</div></div>
   </div>
+
   <div class="ntc">
     <div class="ntc-hdr">Términos y condiciones</div>
-    ${tcLines||'<div class="ntc-item">Sin términos configurados.</div>'}
+    ${tcLines}
+    <div class="ntc-item">Vigencia de esta cotización: ${vigenciaStr}</div>
   </div>
-  <div class="nfooter">${cfg.footerNota||'¡DATE UN GUSTITO! 🍬 · ¡AGRADECEMOS TU PREFERENCIA! 🌸'}</div>`;
-}
 
+  <div class="nfooter">${cfg.negocio||'Candy Wall'} · ${contactLine}</div>
+  `;
+}
 // ══ CONFIGURACIÓN ══
 function renderConfig(){
   const c=getCfg();
